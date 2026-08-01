@@ -2,7 +2,7 @@
 
 一个部署在 Cloudflare Workers 上的 DNS-over-HTTPS 服务，支持国内外域名分流、ECS 和上游故障回退。
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Akiiia/cloudflare-doh-ecs)
+https://deploy.workers.cloudflare.com/?url=https://github.com/Akiiia/cloudflare-doh-ecs
 
 ## 相关链接
 
@@ -29,13 +29,14 @@ DoH 地址：
 ```text
 https://<你的 Worker 域名>/doh
 ```
+
 首次查询会自动下载并初始化国内域名规则。
 
 ## 默认上游
 
-| 分组 | 主上游 | 备用上游 |
-|---|---|---|
-| 国内域名 | AliDNS | 腾讯 DNSPod |
+| 分组     | 主上游     | 备用上游       |
+| -------- | ---------- | -------------- |
+| 国内域名 | AliDNS     | 腾讯 DNSPod    |
 | 其他域名 | Google DNS | Cloudflare DNS |
 
 主上游出现网络错误、超时、异常响应或 DNS `SERVFAIL` 时，才会尝试同组备用上游；不会在国内和国外分组之间回退。
@@ -44,17 +45,18 @@ https://<你的 Worker 域名>/doh
 
 所有配置都有默认值，一键部署时无需修改。
 
-| 变量 | 默认值 |
-|---|---|
-| `DOH_PATH` | `/doh` |
-| `DOMESTIC_DOH_URL` | `https://dns.alidns.com/dns-query` |
-| `DOMESTIC_FALLBACK_DOH_URL` | `https://doh.pub/dns-query` |
-| `GLOBAL_DOH_URL` | `https://dns.google/dns-query` |
-| `GLOBAL_FALLBACK_DOH_URL` | `https://cloudflare-dns.com/dns-query` |
+| 变量                        | 默认值                                 |
+| --------------------------- | -------------------------------------- |
+| `DOH_PATH`                  | `/doh`                                 |
+| `DOMESTIC_DOH_URL`          | `https://dns.alidns.com/dns-query`     |
+| `DOMESTIC_FALLBACK_DOH_URL` | `https://doh.pub/dns-query`            |
+| `GLOBAL_DOH_URL`            | `https://dns.google/dns-query`         |
+| `GLOBAL_FALLBACK_DOH_URL`   | `https://cloudflare-dns.com/dns-query` |
 
 国内域名规则来自 [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat) 的 `direct-list.txt`，每天自动更新。
 
 ## 注意
+
 - 部分受限网络环境无法访问 .workers.dev 域名，需绑定自有域名或另外使用 CDN 以达到加速访问目的。
 - ECS 地址优先取自 `X-Forwarded-For` 中最左侧的合法公网 IP；没有有效地址时回退到 `CF-Connecting-IP`，并自动掩码为 IPv4 `/24` 或 IPv6 `/56`。
 - 每个上游超时为 3 秒；主备均超时时，最坏等待约 6 秒。
@@ -74,5 +76,3 @@ npm run deploy:dry-run
 ## 许可证
 
 MIT
-
-
