@@ -2,7 +2,9 @@
 
 一个部署在 Cloudflare Workers 上的 DNS-over-HTTPS 服务，支持国内外域名分流、ECS 和上游故障回退。
 
-https://deploy.workers.cloudflare.com/?url=https://github.com/Akiiia/cloudflare-doh-ecs
+https://github.com/Akiiia/cloudflare-doh-ecs
+
+https://deploy.workers.cloudflare.com/?url=https://github.com/CodeFlying3/cloudflare-doh-ecs
 
 ## 相关链接
 

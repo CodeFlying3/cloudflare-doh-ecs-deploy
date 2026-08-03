@@ -1,8 +1,8 @@
-import { toArrayBuffer, writeU16, writeU32 } from "../src/binary";
-import type { Env, RuleManifest } from "../src/types";
+import { writeU16, writeU32 } from '../src/binary';
+import type { Env } from '../src/types';
 
 export function encodeName(name: string): Uint8Array {
-  const labels = name.split(".");
+  const labels = name.split('.');
   let length = 1;
   for (const label of labels) length += 1 + label.length;
   const output = new Uint8Array(length);
@@ -20,14 +20,14 @@ export function encodeName(name: string): Uint8Array {
 }
 
 export function makeQuery(
-  name = "www.qq.com",
+  name = 'www.qq.com',
   type = 1,
   options?: {
     id?: number;
     optOptions?: Uint8Array;
     udpSize?: number;
     optTtl?: number;
-  }
+  },
 ): Uint8Array {
   const qname = encodeName(name);
   const optOptions = options?.optOptions;
@@ -61,90 +61,8 @@ export function makeResponseFromQuery(query: Uint8Array): Uint8Array {
   return output;
 }
 
-export function makeRuleBytes(newline = "\n", finalNewline = false): Uint8Array {
-  const lines = [
-    "0.zone",
-    "a.cn",
-    "qq.com",
-    "z-last.cn",
-    "full:exact.qq.net",
-    "full:only.example",
-    "regexp:^ignored\\.example$"
-  ];
-  return new TextEncoder().encode(lines.join(newline) + (finalNewline ? newline : ""));
-}
-
-export class MemoryKv {
-  readonly values = new Map<string, ArrayBuffer | string>();
-  failReadback = false;
-
-  async get(
-    key: string,
-    type?: "text" | "json" | "arrayBuffer"
-  ): Promise<unknown> {
-    if (this.failReadback && key.startsWith("rules:data:")) return null;
-    const value = this.values.get(key);
-    if (value === undefined) return null;
-    if (type === "arrayBuffer") {
-      if (typeof value === "string") return new TextEncoder().encode(value).buffer;
-      return value.slice(0);
-    }
-    const text =
-      typeof value === "string" ? value : new TextDecoder().decode(new Uint8Array(value));
-    if (type === "json") return JSON.parse(text) as unknown;
-    return text;
-  }
-
-  async put(key: string, value: string | ArrayBuffer | ArrayBufferView): Promise<void> {
-    if (typeof value === "string") {
-      this.values.set(key, value);
-      return;
-    }
-    if (ArrayBuffer.isView(value)) {
-      this.values.set(
-        key,
-        value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer
-      );
-      return;
-    }
-    this.values.set(key, value.slice(0));
-  }
-
-  async delete(key: string): Promise<void> {
-    this.values.delete(key);
-  }
-
-  asBinding(): KVNamespace {
-    return this as unknown as KVNamespace;
-  }
-}
-
-export async function envWithRules(
-  rules = makeRuleBytes()
-): Promise<{ env: Env; kv: MemoryKv; version: string }> {
-  const kv = new MemoryKv();
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(rules)));
-  let hash = "";
-  for (const byte of digest) hash += byte.toString(16).padStart(2, "0");
-  const version = `rules:data:${hash}`;
-  const stored = rules.buffer.slice(
-    rules.byteOffset,
-    rules.byteOffset + rules.byteLength
-  ) as ArrayBuffer;
-  await kv.put(version, stored);
-  const manifest: RuleManifest = {
-    active: version,
-    previous: null,
-    sha256: hash,
-    size: rules.byteLength,
-    updatedAt: new Date(0).toISOString()
-  };
-  await kv.put("rules:active", JSON.stringify(manifest));
+export async function envWithRules(): Promise<{ env: Env }> {
   return {
-    env: {
-      RULES_KV: kv.asBinding()
-    },
-    kv,
-    version
+    env: {},
   };
 }

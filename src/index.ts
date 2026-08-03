@@ -1,25 +1,24 @@
-import { toArrayBuffer } from "./binary";
-import { buildDnsError, DnsFormatError, parseDnsMessage, validateUpstreamResponse } from "./dns";
-import { rewriteEcs } from "./ecs";
-import { clientIpFromSingleHeader, clientIpFromXff, subnetForEcs } from "./ip";
-import { ensureRules, isDomesticDomain, updateRules } from "./rules";
-import { readConfig, type WorkerConfig } from "./config";
-import type { Env } from "./types";
+import { toArrayBuffer } from './binary';
+import { buildDnsError, DnsFormatError, parseDnsMessage, validateUpstreamResponse } from './dns';
+import { rewriteEcs } from './ecs';
+import { clientIpFromSingleHeader, clientIpFromXff, subnetForEcs } from './ip';
+import { readConfig, type WorkerConfig } from './config';
+import type { Env } from './types';
 
 const MAX_REQUEST_BYTES = 4096;
 const MAX_RESPONSE_BYTES = 65535;
 const UPSTREAM_TIMEOUT_MS = 3000;
 const ECS_IPV4_PREFIX = 24;
 const ECS_IPV6_PREFIX = 56;
-const DNS_CONTENT_TYPE = "application/dns-message";
+const DNS_CONTENT_TYPE = 'application/dns-message';
 
 class UpstreamFailure extends Error {
   constructor(
     readonly reason: string,
-    readonly detail?: string
+    readonly detail?: string,
   ) {
     super(reason);
-    this.name = "UpstreamFailure";
+    this.name = 'UpstreamFailure';
   }
 }
 
@@ -31,35 +30,33 @@ interface UpstreamFailureDiagnostic {
 function safeFetchErrorDetail(error: unknown): string {
   if (!(error instanceof Error)) return `non_error:${typeof error}`;
   return `${error.name}: ${error.message}`
-    .replace(/https:\/\/[^\s"'<>]+/gi, "[url]")
-    .replace(/\s+/g, " ")
+    .replace(/https:\/\/[^\s"'<>]+/gi, '[url]')
+    .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 240);
 }
 
 function upstreamFailureDiagnostic(error: unknown): UpstreamFailureDiagnostic {
   if (error instanceof UpstreamFailure) {
-    return error.detail === undefined
-      ? { reason: error.reason }
-      : { reason: error.reason, detail: error.detail };
+    return error.detail === undefined ? { reason: error.reason } : { reason: error.reason, detail: error.detail };
   }
   if (error instanceof DnsFormatError) return { reason: `dns_${error.message}` };
-  return { reason: "unexpected_error" };
+  return { reason: 'unexpected_error' };
 }
 
 function logUpstreamFailure(
-  group: "domestic" | "global",
-  role: "primary" | "fallback",
-  diagnostic: UpstreamFailureDiagnostic
+  group: 'domestic' | 'global',
+  role: 'primary' | 'fallback',
+  diagnostic: UpstreamFailureDiagnostic,
 ): void {
   // 不记录查询域名、DNS 报文、客户端地址或自定义上游 URL。
-  console.warn("doh_upstream_failed", { group, role, ...diagnostic });
+  console.warn('doh_upstream_failed', { group, role, ...diagnostic });
 }
 
 function emptyResponse(status: number, extraHeaders?: HeadersInit): Response {
   const headers = new Headers(extraHeaders);
-  headers.set("Cache-Control", "no-store");
-  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
   return new Response(null, { status, headers });
 }
 
@@ -67,32 +64,32 @@ function dnsResponse(body: Uint8Array, status = 200): Response {
   return new Response(toArrayBuffer(body), {
     status,
     headers: {
-      "Content-Type": DNS_CONTENT_TYPE,
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff"
-    }
+      'Content-Type': DNS_CONTENT_TYPE,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
   });
 }
 
 function contentTypeIsDns(request: Request): boolean {
-  const value = request.headers.get("content-type");
+  const value = request.headers.get('content-type');
   if (value === null) return false;
-  return value.split(";", 1)[0]?.trim().toLowerCase() === DNS_CONTENT_TYPE;
+  return value.split(';', 1)[0]?.trim().toLowerCase() === DNS_CONTENT_TYPE;
 }
 
 function decodeBase64Url(value: string): Uint8Array | null {
   if (
     value.length === 0 ||
-    value.length > Math.ceil(MAX_REQUEST_BYTES * 4 / 3) + 4 ||
+    value.length > Math.ceil((MAX_REQUEST_BYTES * 4) / 3) + 4 ||
     !/^[A-Za-z0-9_-]+={0,2}$/.test(value) ||
     value.length % 4 === 1
   ) {
     return null;
   }
-  const unpadded = value.replace(/=+$/, "");
-  const padding = "=".repeat((4 - (unpadded.length % 4)) % 4);
+  const unpadded = value.replace(/=+$/, '');
+  const padding = '='.repeat((4 - (unpadded.length % 4)) % 4);
   try {
-    const decoded = atob(unpadded.replace(/-/g, "+").replace(/_/g, "/") + padding);
+    const decoded = atob(unpadded.replace(/-/g, '+').replace(/_/g, '/') + padding);
     if (decoded.length > MAX_REQUEST_BYTES) return null;
     const output = new Uint8Array(decoded.length);
     for (let i = 0; i < decoded.length; i += 1) output[i] = decoded.charCodeAt(i);
@@ -106,19 +103,19 @@ async function readDnsRequest(request: Request, config: WorkerConfig): Promise<R
   const url = new URL(request.url);
   if (url.pathname !== config.path) return emptyResponse(404);
 
-  if (request.method === "GET") {
-    const values = url.searchParams.getAll("dns");
-    if (values.length !== 1 || [...url.searchParams.keys()].some((key) => key !== "dns")) {
+  if (request.method === 'GET') {
+    const values = url.searchParams.getAll('dns');
+    if (values.length !== 1 || [...url.searchParams.keys()].some((key) => key !== 'dns')) {
       return emptyResponse(400);
     }
-    const decoded = decodeBase64Url(values[0] ?? "");
+    const decoded = decodeBase64Url(values[0] ?? '');
     return decoded ?? emptyResponse(400);
   }
 
-  if (request.method === "POST") {
-    if (url.search !== "") return emptyResponse(400);
+  if (request.method === 'POST') {
+    if (url.search !== '') return emptyResponse(400);
     if (!contentTypeIsDns(request)) return emptyResponse(415);
-    const declaredLength = request.headers.get("content-length");
+    const declaredLength = request.headers.get('content-length');
     if (declaredLength !== null) {
       const parsed = Number(declaredLength);
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_REQUEST_BYTES) {
@@ -131,7 +128,7 @@ async function readDnsRequest(request: Request, config: WorkerConfig): Promise<R
     return new Uint8Array(buffer);
   }
 
-  return emptyResponse(405, { Allow: "GET, POST" });
+  return emptyResponse(405, { Allow: 'GET, POST' });
 }
 
 async function fetchUpstream(url: string, query: Uint8Array): Promise<Uint8Array> {
@@ -141,39 +138,36 @@ async function fetchUpstream(url: string, query: Uint8Array): Promise<Uint8Array
     let response: Response;
     try {
       response = await fetch(url, {
-        method: "POST",
-        redirect: "manual",
+        method: 'POST',
+        redirect: 'manual',
         signal: controller.signal,
         headers: {
           Accept: DNS_CONTENT_TYPE,
-          "Content-Type": DNS_CONTENT_TYPE
+          'Content-Type': DNS_CONTENT_TYPE,
         },
-        body: toArrayBuffer(query)
+        body: toArrayBuffer(query),
       });
     } catch (error) {
-      throw new UpstreamFailure(
-        controller.signal.aborted ? "timeout" : "network_error",
-        safeFetchErrorDetail(error)
-      );
+      throw new UpstreamFailure(controller.signal.aborted ? 'timeout' : 'network_error', safeFetchErrorDetail(error));
     }
     if (!response.ok) throw new UpstreamFailure(`http_status_${response.status}`);
-    const type = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (type !== DNS_CONTENT_TYPE) throw new UpstreamFailure("invalid_content_type");
-    const declaredLength = response.headers.get("content-length");
+    const type = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+    if (type !== DNS_CONTENT_TYPE) throw new UpstreamFailure('invalid_content_type');
+    const declaredLength = response.headers.get('content-length');
     if (declaredLength !== null && Number(declaredLength) > MAX_RESPONSE_BYTES) {
-      throw new UpstreamFailure("response_too_large");
+      throw new UpstreamFailure('response_too_large');
     }
     let buffer: ArrayBuffer;
     try {
       buffer = await response.arrayBuffer();
     } catch (error) {
       throw new UpstreamFailure(
-        controller.signal.aborted ? "timeout" : "response_read_error",
-        safeFetchErrorDetail(error)
+        controller.signal.aborted ? 'timeout' : 'response_read_error',
+        safeFetchErrorDetail(error),
       );
     }
     if (buffer.byteLength < 12 || buffer.byteLength > MAX_RESPONSE_BYTES) {
-      throw new UpstreamFailure("invalid_response_size");
+      throw new UpstreamFailure('invalid_response_size');
     }
     return new Uint8Array(buffer);
   } finally {
@@ -196,8 +190,8 @@ async function handleDns(request: Request, env: Env, config: WorkerConfig): Prom
   let forwardedQuery: Uint8Array;
   try {
     const ip =
-      clientIpFromXff(request.headers.get("x-forwarded-for")) ??
-      clientIpFromSingleHeader(request.headers.get("cf-connecting-ip"));
+      clientIpFromXff(request.headers.get('x-forwarded-for')) ??
+      clientIpFromSingleHeader(request.headers.get('cf-connecting-ip'));
     const subnet = subnetForEcs(ip, ECS_IPV4_PREFIX, ECS_IPV6_PREFIX);
     forwardedQuery = rewriteEcs(originalQuery, parsed, subnet);
   } catch (error) {
@@ -207,23 +201,17 @@ async function handleDns(request: Request, env: Env, config: WorkerConfig): Prom
     return dnsResponse(buildDnsError(originalQuery, 2, parsed.question));
   }
 
-  let domestic = false;
-  const ruleName = parsed.question.name.ruleName;
-  if (ruleName !== null) {
-    const rules = await ensureRules(env);
-    domestic = rules !== null && isDomesticDomain(rules, ruleName);
-  }
-  const upstreams = domestic ? config.domesticUrls : config.globalUrls;
-  const group = domestic ? "domestic" : "global";
+  const upstreams = config.globalUrls;
+  const group = 'global';
   let upstreamIndex = 0;
   for (const upstream of upstreams) {
-    const role = upstreamIndex === 0 ? "primary" : "fallback";
+    const role = upstreamIndex === 0 ? 'primary' : 'fallback';
     upstreamIndex += 1;
     try {
       const upstreamBody = await fetchUpstream(upstream, forwardedQuery);
       const upstreamInfo = validateUpstreamResponse(upstreamBody, parsed);
       if ((upstreamInfo.flags & 0x000f) === 2) {
-        logUpstreamFailure(group, role, { reason: "dns_servfail" });
+        logUpstreamFailure(group, role, { reason: 'dns_servfail' });
         continue;
       }
       return dnsResponse(upstreamBody);
@@ -241,10 +229,10 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     config = readConfig(env);
   } catch {
     const url = new URL(request.url);
-    const expectedPath = env.DOH_PATH ?? "/doh";
+    const expectedPath = env.DOH_PATH ?? '/doh';
     if (url.pathname !== expectedPath) return emptyResponse(404);
     let query = new Uint8Array();
-    if (request.method === "POST") {
+    if (request.method === 'POST') {
       try {
         const buffer = await request.arrayBuffer();
         if (buffer.byteLength <= MAX_REQUEST_BYTES) query = new Uint8Array(buffer);
@@ -261,17 +249,4 @@ export default {
   fetch(request: Request, env: Env): Promise<Response> {
     return handleRequest(request, env);
   },
-
-  scheduled(
-    _controller: ScheduledController,
-    env: Env,
-    ctx: ExecutionContext
-  ): void {
-    ctx.waitUntil(
-      updateRules(env).then(
-        () => undefined,
-        () => undefined
-      )
-    );
-  }
 } satisfies ExportedHandler<Env>;
